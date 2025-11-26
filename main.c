@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Reaction Game (Corrected Button PC1 Version)
+  * @brief          : Reaction Game (Dual Button: PC1 Onboard + PG3 External)
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -13,7 +13,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdlib.h>
-#include "i2c_lcd.h" // Ensure you created this file!
+#include "i2c_lcd.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -22,15 +22,15 @@ TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 typedef enum {
-    STATE_IDLE,       // Screen: "Press DOWN"
-    STATE_RANDOMIZING,// Screen: Rolling numbers...
-    STATE_SHOW_TARGET,// Screen: "Target: 12"
-    STATE_RUNNING,    // Timer: 0, 1, 2...
-    STATE_RESULT      // Win/Lose
+    STATE_IDLE,
+    STATE_RANDOMIZING,
+    STATE_SHOW_TARGET,
+    STATE_RUNNING,
+    STATE_RESULT
 } GameState;
 
 GameState current_state = STATE_IDLE;
-uint32_t timer_ms = 0; // Changed to Milliseconds
+uint32_t timer_ms = 0;
 int target_time = 0;
 char displayStr[17];
 uint32_t last_tick = 0;
@@ -65,58 +65,70 @@ void Buzzer_Tone(uint32_t frequency_hz, uint32_t duration_ms) {
 }
 
 void Play_Victory() {
+    // Turn ON Green LED (PG4) - Active High
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_4, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_2, GPIO_PIN_RESET); // Red Off
+
     // Mario Kart - Coconut Mall Theme (Simplified)
-    // Phrase 1: D# E F# B (High)
-    Buzzer_Tone(311, 100); // D#4
-    Buzzer_Tone(330, 100); // E4
-    Buzzer_Tone(370, 100); // F#4
-    Buzzer_Tone(494, 150); // B4
+    Buzzer_Tone(311, 100);
+    Buzzer_Tone(330, 100);
+    Buzzer_Tone(370, 100);
+    Buzzer_Tone(494, 150);
     HAL_Delay(50);
 
-    // Phrase 2: D# E F# B (High)
-    Buzzer_Tone(311, 100); // D#4
-    Buzzer_Tone(330, 100); // E4
-    Buzzer_Tone(370, 100); // F#4
-    Buzzer_Tone(494, 150); // B4
+    Buzzer_Tone(311, 100);
+    Buzzer_Tone(330, 100);
+    Buzzer_Tone(370, 100);
+    Buzzer_Tone(494, 150);
     HAL_Delay(50);
 
-    // Phrase 3: D# E F# B C# D# E (Run up)
-    Buzzer_Tone(311, 80); // D#4
-    Buzzer_Tone(330, 80); // E4
-    Buzzer_Tone(370, 80); // F#4
-    Buzzer_Tone(494, 80); // B4
-    Buzzer_Tone(554, 80); // C#5
-    Buzzer_Tone(622, 80); // D#5
-    Buzzer_Tone(659, 200); // E5
+    Buzzer_Tone(311, 80);
+    Buzzer_Tone(330, 80);
+    Buzzer_Tone(370, 80);
+    Buzzer_Tone(494, 80);
+    Buzzer_Tone(554, 80);
+    Buzzer_Tone(622, 80);
+    Buzzer_Tone(659, 200);
 }
 
 void Play_Wrong() {
-    // Sad "Game Over" Song (Descending tritone)
-    Buzzer_Tone(523, 150); // C5
-    Buzzer_Tone(392, 150); // G4
-    Buzzer_Tone(330, 150); // E4
+    // Turn ON Red LED (PG2) - Active High
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_2, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_4, GPIO_PIN_RESET); // Green Off
 
-    Buzzer_Tone(440, 200); // A4
-    Buzzer_Tone(494, 200); // B4
-    Buzzer_Tone(440, 200); // A4
-    Buzzer_Tone(415, 200); // G#4
-    Buzzer_Tone(392, 400); // G4 (Long, sad finish)
+    // Sad "Game Over" Song
+    Buzzer_Tone(523, 150);
+    Buzzer_Tone(392, 150);
+    Buzzer_Tone(330, 150);
+
+    Buzzer_Tone(440, 200);
+    Buzzer_Tone(494, 200);
+    Buzzer_Tone(440, 200);
+    Buzzer_Tone(415, 200);
+    Buzzer_Tone(392, 400);
+}
+
+void Reset_LEDs() {
+    // Turn BOTH OFF (Active High -> Set to Low)
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_2, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_4, GPIO_PIN_RESET);
 }
 
 void Play_Click() {
-    Buzzer_Tone(2000, 20); // Short blip
+    Buzzer_Tone(2000, 20);
 }
 
-// Check Button PC1 (Active Low)
-// Returns 1 if pressed, 0 if not
+// Check if EITHER button is pressed
 int Is_Button_Pressed() {
-    // CORRECTED PIN: PC1 (Down Button)
-    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) {
-        HAL_Delay(20); // Short debounce
-        // Check again to confirm it wasn't noise
-        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) {
-            // Wait for release to prevent multiple triggers
-            while (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET);
+    if ((HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) ||
+        (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_3) == GPIO_PIN_RESET))
+    {
+        HAL_Delay(20);
+        if ((HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) ||
+            (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_3) == GPIO_PIN_RESET))
+        {
+            while ((HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) ||
+                   (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_3) == GPIO_PIN_RESET));
             return 1;
         }
     }
@@ -138,58 +150,54 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
   lcd_init();
-  srand(HAL_GetTick()); // Seed random number generator
+  srand(HAL_GetTick());
 
-  // Initial Screen
+  Reset_LEDs();
+
   lcd_clear();
-  HAL_Delay(5); // Wait for clear to finish
+  HAL_Delay(5);
   lcd_put_cur(0, 1);
-  lcd_send_string("Perfect Timing");
+  lcd_send_string("PERFECT TIMING");
   lcd_put_cur(1, 1);
-  lcd_send_string("Press DOWN Btn");
+  lcd_send_string("PressTheButton");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-      // Add a tiny delay to loop to prevent CPU hogging
-      // Reduced to 1ms for smoother millisecond counting
       HAL_Delay(1);
 
       switch (current_state) {
 
           case STATE_IDLE:
+              Reset_LEDs();
               if (Is_Button_Pressed()) {
                   Play_Click();
-                  lcd_clear(); // Clear screen before changing state
-                  HAL_Delay(5); // Wait for clear
+                  lcd_clear();
+                  HAL_Delay(5);
                   current_state = STATE_RANDOMIZING;
               }
               break;
 
           case STATE_RANDOMIZING:
-              // Effect: Show numbers scrolling fast until button pressed
-              target_time = (rand() % 15) + 5; // Generate new number (5-20)
+              target_time = (rand() % 15) + 5;
 
-              // Only update screen every 15ms so it's readable but faster
               sprintf(displayStr, "Target: %d   ", target_time);
-              lcd_put_cur(0, 3); // Centered roughly
+              lcd_put_cur(0, 3);
               lcd_send_string(displayStr);
-              lcd_put_cur(1, 2); // Centered roughly
+              lcd_put_cur(1, 2);
               lcd_send_string("...Rolling...");
-              HAL_Delay(15); // Reduced delay for FASTER scrolling
+              HAL_Delay(15);
 
-              // Check button immediately
               if (Is_Button_Pressed()) {
                   Play_Click();
-                  // Stop on the current number
                   lcd_clear();
-                  HAL_Delay(5); // Wait for clear
-                  sprintf(displayStr, "Target: %d.000s", target_time); // Show as seconds
-                  lcd_put_cur(0, 1); // Centered roughly
+                  HAL_Delay(5);
+                  sprintf(displayStr, "Target: %d.000s", target_time);
+                  lcd_put_cur(0, 1);
                   lcd_send_string(displayStr);
-                  lcd_put_cur(1, 1); // Centered roughly
+                  lcd_put_cur(1, 1);
                   lcd_send_string("Press to Start");
                   current_state = STATE_SHOW_TARGET;
               }
@@ -198,70 +206,62 @@ int main(void)
           case STATE_SHOW_TARGET:
               if (Is_Button_Pressed()) {
                   Play_Click();
-                  // Start the actual game timer
                   lcd_clear();
-                  HAL_Delay(5); // Wait for clear
-                  lcd_put_cur(0, 6); // Centered
+                  HAL_Delay(5);
+                  lcd_put_cur(0, 6);
                   lcd_send_string("GO!");
-                  timer_ms = 0; // Reset Timer (MS)
+                  timer_ms = 0;
                   last_tick = HAL_GetTick();
                   current_state = STATE_RUNNING;
               }
               break;
 
           case STATE_RUNNING:
-              // 1. Update Timer (Milliseconds)
-              // HAL_GetTick() returns milliseconds
               timer_ms = HAL_GetTick() - last_tick;
 
-              // Update screen every ~50ms to keep it readable but fast
               static uint32_t last_screen_update = 0;
               if (timer_ms - last_screen_update > 50) {
                   last_screen_update = timer_ms;
-                  // Format: 12.345s
                   sprintf(displayStr, "Time: %lu.%03lus ", timer_ms / 1000, timer_ms % 1000);
-                  lcd_put_cur(0, 1); // Centered roughly
+                  lcd_put_cur(0, 1);
                   lcd_send_string(displayStr);
               }
 
-              if (timer_ms > 99000) { // Timeout at 99 seconds
+              if (timer_ms > 99000) {
                   lcd_clear();
-                  HAL_Delay(5); // Wait for clear
-                  lcd_put_cur(0, 3); // Centered
+                  HAL_Delay(5);
+                  lcd_put_cur(0, 3);
                   lcd_send_string("TOO SLOW!");
                   Play_Wrong();
                   current_state = STATE_RESULT;
               }
 
-              // 2. Check for Stop
               if (Is_Button_Pressed()) {
-                  lcd_clear(); // <--- ADDED CLEAR
-                  HAL_Delay(5); // Wait for clear
+                  lcd_clear();
+                  HAL_Delay(5);
 
-                  // Convert target_time (seconds) to ms for comparison
                   uint32_t target_ms = target_time * 1000;
 
-                  // WIN Condition: Between Target and Target + 100ms
                   if (timer_ms >= target_ms && timer_ms <= (target_ms + 100)) {
-                      lcd_put_cur(0, 3); // Centered
+                      lcd_put_cur(0, 3);
                       lcd_send_string("VICTORY!!");
-                      lcd_put_cur(1, 2); // Centered roughly
+                      lcd_put_cur(1, 2);
                       sprintf(displayStr, "Hit: %lu.%03lus", timer_ms/1000, timer_ms%1000);
                       lcd_send_string(displayStr);
                       Play_Victory();
                   } else {
-                      lcd_put_cur(0, 4); // Centered
-                      lcd_send_string("YOU LOST!"); // Changed from "WRONG!"
+                      lcd_put_cur(0, 4);
+                      lcd_send_string("YOU LOST!");
                       sprintf(displayStr, "Hit: %lu.%03lus", timer_ms/1000, timer_ms%1000);
-                      lcd_put_cur(1, 2); // Centered roughly
+                      lcd_put_cur(1, 2);
                       lcd_send_string(displayStr);
-                      Play_Wrong(); // Sad losing song
+                      Play_Wrong();
                   }
 
-                  HAL_Delay(2000); // Longer pause to see result
-                  lcd_clear(); // <--- ADDED CLEAR before resetting text
-                  HAL_Delay(5); // Wait for clear
-                  lcd_put_cur(0, 1); // Centered
+                  HAL_Delay(2000);
+                  lcd_clear();
+                  HAL_Delay(5);
+                  lcd_put_cur(0, 1);
                   lcd_send_string("Press to Reset");
                   current_state = STATE_RESULT;
               }
@@ -270,12 +270,12 @@ int main(void)
           case STATE_RESULT:
               if (Is_Button_Pressed()) {
                   Play_Click();
-                  lcd_clear(); // <--- ADDED CLEAR
-                  HAL_Delay(5); // Wait for clear
+                  lcd_clear();
+                  HAL_Delay(5);
                   lcd_put_cur(0, 1);
-                  lcd_send_string("Perfect Timing");
+                  lcd_send_string("PERFECT TIMING");
                   lcd_put_cur(1, 1);
-                  lcd_send_string("Press DOWN Btn");
+                  lcd_send_string("PressTheButton");
                   current_state = STATE_IDLE;
               }
               break;
@@ -347,8 +347,10 @@ static void MX_GPIO_Init(void)
 
   // Enable Clocks
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
 
   // 1. Buzzer (PB0)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
@@ -358,11 +360,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  // 2. Onboard Button (PC1) - DOWN Button
-  GPIO_InitStruct.Pin = GPIO_PIN_1; // Updated to correct Down button pin
+  // 2. Buttons (PC1, PG3)
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP; // Critical for button to work
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+
+  // 3. External LEDs (PG2 Red, PG4 Green)
+  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_2|GPIO_PIN_4, GPIO_PIN_RESET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 }
 
 void Error_Handler(void)
